@@ -3,14 +3,20 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+import platform
+import pathlib
 
 import streamlit as st
 import torch
 import torchvision.transforms.functional as TF
 from PIL import Image, ImageOps
 
-# เพิ่มการนำเข้า fastai เพื่อให้ระบบรู้จักโมเดล
-import fastai.vision.all as fastai_vision
+# นำเข้า load_learner จาก fastai เพื่อโหลดโมเดล .pkl ให้ถูกต้อง
+from fastai.vision.all import load_learner
+
+# ⭐ แท็กติกหลอกเซิร์ฟเวอร์: แก้ปัญหาโมเดลที่เซฟจาก Windows นำมารันบน Linux (Cloud)
+if platform.system() != 'Windows':
+    pathlib.WindowsPath = pathlib.PosixPath
 
 HERE = Path(__file__).parent
 MODEL_PATH = HERE / "model" / "model.pkl"
@@ -25,10 +31,8 @@ st.set_page_config(page_title="Image Classifier", page_icon="🖼️", layout="c
 
 @st.cache_resource(show_spinner="Loading model…")
 def load_model():
-    # โหลดโมเดล FastAI ทั้งก้อน (พร้อมตั้งค่า weights_only=False เพื่อปลดล็อกความปลอดภัยของ PyTorch 2.6)
-    learner = torch.load(str(MODEL_PATH), map_location=torch.device('cpu'), weights_only=False)
-    
-    # ดึงเอาเฉพาะโครงข่ายประสาทเทียม (PyTorch Model) ออกมาจากตัว Learner ของ FastAI
+    # ⭐ เปลี่ยนมาใช้คำสั่ง load_learner ของ fastai โดยตรง และสั่งบังคับใช้ cpu=True
+    learner = load_learner(MODEL_PATH, cpu=True)
     model = learner.model.eval()
     
     meta = json.loads(LABELS_PATH.read_text())
