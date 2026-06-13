@@ -10,7 +10,8 @@ import torchvision.transforms.functional as TF
 from PIL import Image, ImageOps
 
 HERE = Path(__file__).parent
-MODEL_PATH = HERE / "model" / "model.ts"
+# ⭐ จุดแก้ไข 1: เปลี่ยนชื่อไฟล์โมเดลเป็น .pkl ให้ตรงกับไฟล์จริงของคุณ
+MODEL_PATH = HERE / "model" / "model.pkl"
 LABELS_PATH = HERE / "model" / "labels.json"
 TOP_K = 5
 
@@ -23,7 +24,13 @@ st.set_page_config(page_title="Image Classifier", page_icon="🖼️", layout="c
 
 @st.cache_resource(show_spinner="Loading model…")
 def load_model():
-    model = torch.jit.load(str(MODEL_PATH), map_location="cpu").eval()
+    # ⭐ จุดแก้ไข 2: เปลี่ยนมาใช้ torch.load และบังคับโหลดเข้า CPU ป้องกันหน้าจอค้างบน Cloud
+    model = torch.load(str(MODEL_PATH), map_location=torch.device('cpu'))
+    
+    # ถ้าโมเดลมีฟังก์ชัน eval() ให้เปิดโหมดทดสอบ
+    if hasattr(model, 'eval'):
+        model.eval()
+        
     meta = json.loads(LABELS_PATH.read_text())
     return model, meta["labels"], meta["preprocess"]
 
@@ -52,3 +59,31 @@ def classify(model, labels, pre, pil_img: Image.Image):
         reverse=True,
     )
     return pairs
+
+#----------------------------------------------------------
+
+try:
+    model, labels, pre_config = load_model()
+except Exception as e:
+    st.error(f"ไม่สามารถโหลดโมเดลได้ ตรวจสอบว่ามีไฟล์ที่โฟลเดอร์ model หรือยัง? รายละเอียด: {e}")
+    st.stop()
+
+st.title("🖼️ แอปพลิเคชันจำแนกรูปภาพ")
+st.write("อัปโหลดรูปภาพของคุณด้านล่าง เพื่อให้ AI ช่วยวิเคราะห์")
+
+uploaded_file = st.file_uploader("เลือกรูปภาพ...", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    image = ImageOps.exif_transpose(image)
+    
+    st.image(image, caption="รูปภาพที่อัปโหลด", use_container_width=True)
+    
+    with st.spinner("กำลังวิเคราะห์รูปภาพ..."):
+        results = classify(model, labels, pre_config, image)
+        
+    st.subheader("ผลการวิเคราะห์ (Top 5)")
+    for label, prob in results[:TOP_K]:
+        percent = prob * 100
+        st.write(f"**{label}**: {percent:.2f}%")
+        st.progress(prob)
