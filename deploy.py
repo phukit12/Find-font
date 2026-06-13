@@ -11,10 +11,18 @@ import torch
 import torchvision.transforms.functional as TF
 from PIL import Image, ImageOps
 
-# นำเข้า load_learner จาก fastai เพื่อโหลดโมเดล .pkl ให้ถูกต้อง
+# 🛠️ โค้ดปราบบอสลับ: ดักแปลงคำสั่ง torch.load เพื่อแก้บั๊ก PyTorch 2.6 กับ FastAI 
+# บังคับให้ใช้ weights_only=False เสมอ เพื่อข้ามการทำงานของ Resolver ที่มีปัญหา
+orig_load = torch.load
+def patched_load(*args, **kwargs):
+    kwargs['weights_only'] = False
+    return orig_load(*args, **kwargs)
+torch.load = patched_load
+
+# นำเข้า load_learner ของ fastai หลังจากดักแปลงคำสั่งเสร็จเรียบร้อย
 from fastai.vision.all import load_learner
 
-# ⭐ แท็กติกหลอกเซิร์ฟเวอร์: แก้ปัญหาโมเดลที่เซฟจาก Windows นำมารันบน Linux (Cloud)
+# แท็กติกหลอกเซิร์ฟเวอร์: แก้ปัญหาโมเดลที่เซฟจาก Windows นำมารันบน Linux (Cloud)
 if platform.system() != 'Windows':
     pathlib.WindowsPath = pathlib.PosixPath
 
@@ -31,7 +39,7 @@ st.set_page_config(page_title="Image Classifier", page_icon="🖼️", layout="c
 
 @st.cache_resource(show_spinner="Loading model…")
 def load_model():
-    # ⭐ เปลี่ยนมาใช้คำสั่ง load_learner ของ fastai โดยตรง และสั่งบังคับใช้ cpu=True
+    # โหลดโมเดลผ่านคำสั่งปกติ ซึ่งตอนนี้ถูกปลดล็อกความปลอดภัยที่บั๊กเรียบร้อยแล้ว
     learner = load_learner(MODEL_PATH, cpu=True)
     model = learner.model.eval()
     
