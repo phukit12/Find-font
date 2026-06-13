@@ -9,13 +9,14 @@ import torch
 import torchvision.transforms.functional as TF
 from PIL import Image, ImageOps
 
+# เพิ่มการนำเข้า fastai เพื่อให้ระบบรู้จักโมเดล
+import fastai.vision.all as fastai_vision
+
 HERE = Path(__file__).parent
-# ⭐ จุดแก้ไข 1: เปลี่ยนชื่อไฟล์โมเดลเป็น .pkl ให้ตรงกับไฟล์จริงของคุณ
 MODEL_PATH = HERE / "model" / "model.pkl"
 LABELS_PATH = HERE / "model" / "labels.json"
 TOP_K = 5
 
-# ImageNet stats, used only if the model was trained with normalization.
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -24,24 +25,21 @@ st.set_page_config(page_title="Image Classifier", page_icon="🖼️", layout="c
 
 @st.cache_resource(show_spinner="Loading model…")
 def load_model():
-    # ⭐ จุดแก้ไข 2: เปลี่ยนมาใช้ torch.load และบังคับโหลดเข้า CPU ป้องกันหน้าจอค้างบน Cloud
-    model = torch.load(str(MODEL_PATH), map_location=torch.device('cpu'))
+    # โหลดโมเดล FastAI ทั้งก้อน (พร้อมตั้งค่า weights_only=False เพื่อปลดล็อกความปลอดภัยของ PyTorch 2.6)
+    learner = torch.load(str(MODEL_PATH), map_location=torch.device('cpu'), weights_only=False)
     
-    # ถ้าโมเดลมีฟังก์ชัน eval() ให้เปิดโหมดทดสอบ
-    if hasattr(model, 'eval'):
-        model.eval()
-        
+    # ดึงเอาเฉพาะโครงข่ายประสาทเทียม (PyTorch Model) ออกมาจากตัว Learner ของ FastAI
+    model = learner.model.eval()
+    
     meta = json.loads(LABELS_PATH.read_text())
     return model, meta["labels"], meta["preprocess"]
 
 
 def preprocess(pil_img: Image.Image, pre: dict) -> torch.Tensor:
-    """Reproduce the fastai validation transforms (resize-crop, scale to [0,1])."""
     size = int(pre.get("size", 224))
-    # fastai "crop": scale so the shorter side == size, then center-crop size×size.
-    img = TF.resize(pil_img, size)            # shorter side -> size, aspect kept
+    img = TF.resize(pil_img, size)
     img = TF.center_crop(img, [size, size])
-    x = TF.pil_to_tensor(img).float()         # CHW, 0..255
+    x = TF.pil_to_tensor(img).float()
     if pre.get("divide_255", True):
         x = x / 255.0
     if pre.get("normalize", False):
