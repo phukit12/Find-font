@@ -21,19 +21,16 @@ IMAGENET_STD  = [0.229, 0.224, 0.225]
 
 st.set_page_config(page_title="Thai Font Finder", page_icon="🔍", layout="wide")
 
-# ── inject CSS via st.html (ไม่ถูก strip) ──────────────────────────────
 st.html("""
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 #MainMenu, footer, header { visibility: hidden; }
 
-/* force light background ทับ dark mode */
 html, body,
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"],
 [data-testid="stMainBlockContainer"],
-section.main, .main .block-container,
-[data-testid="block-container"] {
+section.main, .main .block-container {
     background: #f0ead8 !important;
     color: #2c2c2a !important;
     font-family: 'Sarabun', sans-serif !important;
@@ -43,19 +40,68 @@ section.main, .main .block-container,
     max-width: 100% !important;
 }
 
-/* ซ่อน file uploader ของ Streamlit */
-[data-testid="stFileUploader"],
-[data-testid="stFileUploaderDropzone"],
-[data-testid="stFileUploadDropzone"] { display: none !important; }
+/* ── Style the native file uploader to look like ref ── */
+[data-testid="stFileUploader"] {
+    background: #ffffff !important;
+    border-bottom: 0.5px solid #d6cebc !important;
+    border-radius: 0 !important;
+    padding: 6px 1.2rem !important;
+}
+[data-testid="stFileUploader"] label {
+    display: none !important;
+}
+[data-testid="stFileUploader"] section {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+}
+[data-testid="stFileUploader"] section > div {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+}
+[data-testid="stFileUploadDropzone"] {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    flex-direction: row !important;
+    gap: 10px !important;
+}
+[data-testid="stFileUploadDropzone"] > div {
+    display: flex !important;
+    align-items: center !important;
+    flex-direction: row !important;
+    gap: 10px !important;
+}
+/* Upload button */
+[data-testid="stFileUploadDropzone"] button {
+    background: #f0ead8 !important;
+    border: 0.5px solid #b4b2a9 !important;
+    border-radius: 6px !important;
+    color: #3b3a37 !important;
+    font-family: 'Sarabun', sans-serif !important;
+    font-size: 13px !important;
+    padding: 5px 14px !important;
+    white-space: nowrap !important;
+}
+[data-testid="stFileUploadDropzone"] button:hover {
+    background: #e8e2d0 !important;
+}
+/* hint text */
+[data-testid="stFileUploadDropzone"] span,
+[data-testid="stFileUploadDropzone"] p {
+    font-size: 12px !important;
+    color: #888780 !important;
+    font-family: 'Sarabun', sans-serif !important;
+}
 
 /* ── Header ── */
 .tff-header {
-    position: relative;
-    background: #f0ead8;
-    padding: 1.6rem 1rem 1.3rem;
-    text-align: center;
-    overflow: hidden;
-    min-height: 130px;
+    position: relative; background: #f0ead8;
+    padding: 1.6rem 1rem 1.3rem; text-align: center;
+    overflow: hidden; min-height: 130px;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     border-bottom: 0.5px solid #d6cebc;
@@ -68,13 +114,11 @@ section.main, .main .block-container,
 .tff-hbg-row {
     white-space: nowrap; font-size: 30px;
     font-family: 'Sarabun', sans-serif;
-    color: rgba(80,60,20,0.13);
-    line-height: 1.6; letter-spacing: 8px;
+    color: rgba(80,60,20,0.13); line-height: 1.6; letter-spacing: 8px;
 }
 .tff-logo {
     position: relative; z-index: 2;
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    font-family: 'Sarabun', sans-serif;
 }
 .tff-logo-kor  { font-size: 48px; color: #2d5a3d; font-weight: 600; line-height: 1; }
 .tff-logo-text { font-size: 28px; font-weight: 600; color: #2c2c2a; letter-spacing: 1px; }
@@ -86,30 +130,11 @@ section.main, .main .block-container,
     font-family: 'Sarabun', sans-serif;
 }
 
-/* ── Upload bar ── */
-.tff-upload-bar {
-    background: #fff;
-    border-bottom: 0.5px solid #d6cebc;
-    padding: 8px 1.2rem;
-    display: flex; align-items: center; gap: 10px;
-    cursor: pointer;
-}
-.tff-upload-btn {
-    background: #f0ead8; border: 0.5px solid #b4b2a9; border-radius: 6px;
-    padding: 5px 14px; font-size: 13px; color: #3b3a37;
-    display: flex; align-items: center; gap: 6px;
-    white-space: nowrap; font-family: 'Sarabun', sans-serif; cursor: pointer;
-}
-.tff-upload-hint { font-size: 12px; color: #888780; flex: 1; font-family: 'Sarabun', sans-serif; }
-.tff-upload-arrow { font-size: 16px; color: #888780; }
-
 /* ── Content grid ── */
 .tff-content {
     display: grid; grid-template-columns: 1fr 1.4fr;
     gap: 1rem; padding: 1rem 1.2rem; background: #f0ead8;
 }
-
-/* ── Preview card ── */
 .tff-preview-card {
     border: 1.5px dashed #b4b2a9; border-radius: 10px;
     background: rgba(255,255,255,0.35); padding: 0.85rem 1rem;
@@ -132,8 +157,6 @@ section.main, .main .block-container,
     width: 20px; height: 20px; background: #f0ead8;
     clip-path: polygon(0 0, 100% 100%, 100% 0);
 }
-
-/* ── Result cards ── */
 .tff-results-title {
     font-size: 17px; font-weight: 600; color: #2c2c2a;
     margin-bottom: 12px; font-family: 'Sarabun', sans-serif;
@@ -159,7 +182,7 @@ section.main, .main .block-container,
 </style>
 """)
 
-# ── Header ─────────────────────────────────────────────────────────────
+# ── Header ──────────────────────────────────────────────────────────────
 st.html("""
 <div class="tff-header">
     <div class="tff-hbg">
@@ -177,21 +200,14 @@ st.html("""
 </div>
 """)
 
-# ── Upload bar (visual) + hidden real uploader ──────────────────────────
-st.html("""
-<div class="tff-upload-bar" onclick="document.querySelector('[data-testid=stFileUploadDropzone]')?.click()">
-    <div class="tff-upload-btn">⬆ นำเข้ารูปภาพ</div>
-    <span class="tff-upload-hint">Choose an image — PNG, JPG, WEBP, BMP สูงสุด 20MB</span>
-    <span class="tff-upload-arrow">⌄</span>
-</div>
-""")
-
+# ── Native file uploader (functional + styled) ──────────────────────────
 uploaded_file = st.file_uploader(
-    "upload", type=["jpg", "jpeg", "png", "webp", "bmp"],
+    "นำเข้ารูปภาพ",
+    type=["jpg", "jpeg", "png", "webp", "bmp"],
     label_visibility="collapsed",
 )
 
-# ── Model ───────────────────────────────────────────────────────────────
+# ── Model ────────────────────────────────────────────────────────────────
 class AdaptiveConcatPool2d(nn.Module):
     def __init__(self):
         super().__init__()
@@ -244,7 +260,7 @@ except Exception as e:
     st.error(f"ไม่สามารถโหลดโมเดลได้: {e}")
     st.stop()
 
-# ── Build content HTML ──────────────────────────────────────────────────
+# ── Build + render content ───────────────────────────────────────────────
 image = None
 if uploaded_file:
     image = Image.open(uploaded_file)
@@ -252,7 +268,6 @@ if uploaded_file:
     if image.mode != "RGB":
         image = image.convert("RGB")
 
-# preview
 if image:
     buf = io.BytesIO()
     image.save(buf, format="JPEG")
@@ -261,7 +276,6 @@ if image:
 else:
     preview_html = '<div class="tff-paper"></div>'
 
-# cards
 def pct_cls(p):
     return "tff-pct-high" if p >= 0.85 else ("tff-pct-mid" if p >= 0.60 else "tff-pct-low")
 def bar_cls(p):
