@@ -22,24 +22,40 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 st.set_page_config(page_title="Image Classifier", page_icon="🖼️", layout="centered")
 
 
+class AdaptiveConcatPool2d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.ap = nn.AdaptiveAvgPool2d(1)
+        self.mp = nn.AdaptiveMaxPool2d(1)
+    def forward(self, x):
+        return torch.cat([self.ap(x), self.mp(x)], 1)
+
+class Flatten(nn.Module):
+    def forward(self, x):
+        return x.view(x.size(0), -1)
+
+
 @st.cache_resource(show_spinner="Loading model…")
 def load_model():
     meta = json.loads(LABELS_PATH.read_text())
     num_classes = len(meta["labels"])
 
     body = models.resnet50()
-    body.fc = nn.Identity()
+    body = nn.Sequential(*list(body.children())[:-2])
     body.load_state_dict(torch.load(WEIGHTS_BODY_PATH, map_location="cpu"), strict=False)
 
-    head_state = torch.load(WEIGHTS_HEAD_PATH, map_location="cpu")
-    
-    in_features = 2048
     head = nn.Sequential(
-        nn.AdaptiveAvgPool2d(1),
-        nn.Flatten(),
-        nn.Linear(in_features, num_classes)
+        AdaptiveConcatPool2d(),
+        Flatten(),
+        nn.BatchNorm1d(4096),
+        nn.Dropout(p=0.25),
+        nn.Linear(4096, 512, bias=False),
+        nn.ReLU(inplace=True),
+        nn.BatchNorm1d(512),
+        nn.Dropout(p=0.5),
+        nn.Linear(512, num_classes, bias=False)
     )
-    head.load_state_dict(head_state, strict=False)
+    head.load_state_dict(torch.load(WEIGHTS_HEAD_PATH, map_location="cpu"), strict=False)
 
     model = nn.Sequential(body, head).eval()
     return model, meta["labels"], meta["preprocess"]
