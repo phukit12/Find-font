@@ -5,12 +5,14 @@ from pathlib import Path
 
 import streamlit as st
 import torch
+import torch.nn as nn
 import torchvision.transforms.functional as TF
 import torchvision.models as models
 from PIL import Image, ImageOps
 
 HERE = Path(__file__).parent
-WEIGHTS_PATH = HERE / "model" / "weights.pth"
+WEIGHTS_BODY_PATH = HERE / "model" / "weights_body.pth"
+WEIGHTS_HEAD_PATH = HERE / "model" / "weights_head.pth"
 LABELS_PATH = HERE / "model" / "labels.json"
 TOP_K = 5
 
@@ -25,11 +27,21 @@ def load_model():
     meta = json.loads(LABELS_PATH.read_text())
     num_classes = len(meta["labels"])
 
-    model = models.resnet50()
-    model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-    model.load_state_dict(torch.load(WEIGHTS_PATH, map_location="cpu"), strict=False)
-    model.eval()
+    body = models.resnet50()
+    body.fc = nn.Identity()
+    body.load_state_dict(torch.load(WEIGHTS_BODY_PATH, map_location="cpu"), strict=False)
 
+    head_state = torch.load(WEIGHTS_HEAD_PATH, map_location="cpu")
+    
+    in_features = 2048
+    head = nn.Sequential(
+        nn.AdaptiveAvgPool2d(1),
+        nn.Flatten(),
+        nn.Linear(in_features, num_classes)
+    )
+    head.load_state_dict(head_state, strict=False)
+
+    model = nn.Sequential(body, head).eval()
     return model, meta["labels"], meta["preprocess"]
 
 
