@@ -1,33 +1,16 @@
 from __future__ import annotations
 
-import io
 import json
 from pathlib import Path
-import platform
-import pathlib
 
 import streamlit as st
 import torch
 import torchvision.transforms.functional as TF
+import torchvision.models as models
 from PIL import Image, ImageOps
 
-# 🛠️ โค้ดปราบบอสลับ: ดักแปลงคำสั่ง torch.load เพื่อแก้บั๊ก PyTorch 2.6 กับ FastAI 
-# บังคับให้ใช้ weights_only=False เสมอ เพื่อข้ามการทำงานของ Resolver ที่มีปัญหา
-orig_load = torch.load
-def patched_load(*args, **kwargs):
-    kwargs['weights_only'] = False
-    return orig_load(*args, **kwargs)
-torch.load = patched_load
-
-# นำเข้า load_learner ของ fastai หลังจากดักแปลงคำสั่งเสร็จเรียบร้อย
-from fastai.vision.all import load_learner
-
-# แท็กติกหลอกเซิร์ฟเวอร์: แก้ปัญหาโมเดลที่เซฟจาก Windows นำมารันบน Linux (Cloud)
-if platform.system() != 'Windows':
-    pathlib.WindowsPath = pathlib.PosixPath
-
 HERE = Path(__file__).parent
-MODEL_PATH = HERE / "model" / "model.pkl"
+WEIGHTS_PATH = HERE / "model" / "weights.pth"
 LABELS_PATH = HERE / "model" / "labels.json"
 TOP_K = 5
 
@@ -39,11 +22,14 @@ st.set_page_config(page_title="Image Classifier", page_icon="🖼️", layout="c
 
 @st.cache_resource(show_spinner="Loading model…")
 def load_model():
-    # โหลดโมเดลผ่านคำสั่งปกติ ซึ่งตอนนี้ถูกปลดล็อกความปลอดภัยที่บั๊กเรียบร้อยแล้ว
-    learner = load_learner(MODEL_PATH, cpu=True)
-    model = learner.model.eval()
-    
     meta = json.loads(LABELS_PATH.read_text())
+    num_classes = len(meta["labels"])
+
+    model = models.resnet50()
+    model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+    model.load_state_dict(torch.load(WEIGHTS_PATH, map_location="cpu"))
+    model.eval()
+
     return model, meta["labels"], meta["preprocess"]
 
 
@@ -70,12 +56,11 @@ def classify(model, labels, pre, pil_img: Image.Image):
     )
     return pairs
 
-#----------------------------------------------------------
 
 try:
     model, labels, pre_config = load_model()
 except Exception as e:
-    st.error(f"ไม่สามารถโหลดโมเดลได้ ตรวจสอบว่ามีไฟล์ที่โฟลเดอร์ model หรือยัง? รายละเอียด: {e}")
+    st.error(f"ไม่สามารถโหลดโมเดลได้: {e}")
     st.stop()
 
 st.title("🖼️ แอปพลิเคชันจำแนกรูปภาพ")
@@ -86,12 +71,12 @@ uploaded_file = st.file_uploader("เลือกรูปภาพ...", type=["
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
     image = ImageOps.exif_transpose(image)
-    
+
     st.image(image, caption="รูปภาพที่อัปโหลด", use_container_width=True)
-    
+
     with st.spinner("กำลังวิเคราะห์รูปภาพ..."):
         results = classify(model, labels, pre_config, image)
-        
+
     st.subheader("ผลการวิเคราะห์ (Top 5)")
     for label, prob in results[:TOP_K]:
         percent = prob * 100
