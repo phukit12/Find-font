@@ -27,7 +27,7 @@ def load_model():
 
     model = models.resnet50()
     model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-    model.load_state_dict(torch.load(WEIGHTS_PATH, map_location="cpu"))
+    model.load_state_dict(torch.load(WEIGHTS_PATH, map_location="cpu"), strict=False)
     model.eval()
 
     return model, meta["labels"], meta["preprocess"]
