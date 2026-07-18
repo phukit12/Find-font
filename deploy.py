@@ -3,12 +3,18 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 from pathlib import Path
+import platform
 import os
 
 import streamlit as st
 from PIL import Image, ImageOps
 from fastai.learner import load_learner
 import gdown
+
+# --- แก้ปัญหา Path หากเทรนบน Windows แล้วมารันบน Linux/Streamlit ---
+import pathlib
+if platform.system() == 'Linux':
+    pathlib.WindowsPath = pathlib.PosixPath
 
 HERE = Path(__file__).parent
 MODEL_PATH = HERE / "export.pkl"
@@ -22,7 +28,7 @@ def image_to_base64(img: Image.Image):
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-# --- CSS & Header HTML (ดั้งเดิมที่คุณออกแบบไว้) ---
+# --- CSS & Header HTML ---
 st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -75,27 +81,31 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# =========================================================
+# 🛑 นำฟังก์ชันที่คุณสร้างไว้ตอนเทรนโมเดลใน Colab มาวางตรงนี้ 🛑
+# ตัวอย่างเช่น:
+# def get_label(x):
+#     return x.parent.name
+# =========================================================
+
+
+
+
+# =========================================================
+
 # --- ระบบโหลดโมเดลจาก Google Drive ---
 @st.cache_resource(show_spinner="กำลังดาวน์โหลดและโหลดโมเดล (ใช้เวลาครั้งแรกประมาณ 1-2 นาที)...")
 def load_model():
     file_id = '17m576pqSeWVpHk2vTbB5qPTXMNCdfqR8'
     
-    # ถ้ายังไม่มีไฟล์ในเครื่องเซิร์ฟเวอร์ ให้ดาวน์โหลดจาก Google Drive
     if not MODEL_PATH.exists():
         url = f'https://drive.google.com/uc?id={file_id}'
         gdown.download(url, str(MODEL_PATH), quiet=False)
         
     return load_learner(MODEL_PATH)
 
-try:
-    learn = load_model()
-    labels = learn.dls.vocab
-except Exception as e:
-    st.error(f"ไม่สามารถโหลดโมเดลได้: {e}")
-    st.stop()
 
-
-# --- ส่วนอินเทอร์เฟซอัปโหลดและแสดงผล (โค้ดดั้งเดิม) ---
+# --- โครงสร้างหน้าเว็บ (เอามาไว้ข้างนอกเพื่อให้แสดงผลตลอดเวลา) ---
 col_left, col_right = st.columns([1, 1.4])
 
 with col_left:
@@ -123,65 +133,74 @@ with col_right:
     st.markdown('<div style="padding: 1rem 1rem 0;">', unsafe_allow_html=True)
     st.markdown('<div class="tff-results-title">ผลการพยากรณ์</div>', unsafe_allow_html=True)
 
-    if uploaded_file:
-        with st.spinner("กำลังวิเคราะห์..."):
-            _, _, probs = learn.predict(image)
+    # วาดกล่องให้เสร็จก่อน แล้วค่อยพยายามโหลดโมเดลตรงนี้
+    try:
+        learn = load_model()
+        labels = learn.dls.vocab
+
+        if uploaded_file:
+            with st.spinner("กำลังวิเคราะห์..."):
+                _, _, probs = learn.predict(image)
+                
+                results = sorted(
+                    ((labels[i], float(probs[i])) for i in range(len(labels))),
+                    key=lambda p: p[1],
+                    reverse=True,
+                )
+
+            def pct_class(p):
+                if p >= 0.85: return "tff-pct-high"
+                if p >= 0.60: return "tff-pct-mid"
+                return "tff-pct-low"
+
+            def bar_class(p):
+                if p >= 0.85: return "tff-bar-green"
+                if p >= 0.60: return "tff-bar-yellow"
+                return "tff-bar-gray"
+
+            top5 = results[:TOP_K]
             
-            results = sorted(
-                ((labels[i], float(probs[i])) for i in range(len(labels))),
-                key=lambda p: p[1],
-                reverse=True,
-            )
+            # --- แถวที่ 1 ---
+            cards_html = '<div class="tff-grid">'
+            for i, (label, prob) in enumerate(top5[:3]):
+                top_cls = "top" if i == 0 else ""
+                pct_str = f"{prob*100:.1f}%"
+                bar_w = int(prob * 100)
+                cards_html += f"""
+                <div class="tff-card {top_cls}">
+                    <div class="tff-card-top">
+                        <span class="tff-rank">{i+1}</span>
+                        <span class="{pct_class(prob)}">{pct_str}</span>
+                    </div>
+                    <div class="tff-name">{label}</div>
+                    <div class="tff-bar-bg"><div class="tff-bar {bar_class(prob)}" style="width:{bar_w}%"></div></div>
+                </div>"""
+            cards_html += '</div>'
 
-        def pct_class(p):
-            if p >= 0.85: return "tff-pct-high"
-            if p >= 0.60: return "tff-pct-mid"
-            return "tff-pct-low"
+            # --- แถวที่ 2 ---
+            cards_html += '<div class="tff-grid">'
+            for i, (label, prob) in enumerate(top5[3:]):
+                pct_str = f"{prob*100:.1f}%"
+                bar_w = int(prob * 100)
+                cards_html += f"""
+                <div class="tff-card">
+                    <div class="tff-card-top">
+                        <span class="tff-rank">{i+4}</span>
+                        <span class="{pct_class(prob)}">{pct_str}</span>
+                    </div>
+                    <div class="tff-name">{label}</div>
+                    <div class="tff-bar-bg"><div class="tff-bar {bar_class(prob)}" style="width:{bar_w}%"></div></div>
+                </div>"""
+            
+            cards_html += '<div class="tff-card" style="background:transparent;border:none;"></div>'
+            cards_html += '</div>'
 
-        def bar_class(p):
-            if p >= 0.85: return "tff-bar-green"
-            if p >= 0.60: return "tff-bar-yellow"
-            return "tff-bar-gray"
+            st.markdown(cards_html, unsafe_allow_html=True)
+        else:
+            st.markdown('<p style="color:#888780;font-size:14px;font-family:Sarabun,sans-serif;">อัปโหลดรูปภาพเพื่อดูผลการพยากรณ์</p>', unsafe_allow_html=True)
 
-        top5 = results[:TOP_K]
-        
-        # --- แถวที่ 1 ---
-        cards_html = '<div class="tff-grid">'
-        for i, (label, prob) in enumerate(top5[:3]):
-            top_cls = "top" if i == 0 else ""
-            pct_str = f"{prob*100:.1f}%"
-            bar_w = int(prob * 100)
-            cards_html += f"""
-            <div class="tff-card {top_cls}">
-                <div class="tff-card-top">
-                    <span class="tff-rank">{i+1}</span>
-                    <span class="{pct_class(prob)}">{pct_str}</span>
-                </div>
-                <div class="tff-name">{label}</div>
-                <div class="tff-bar-bg"><div class="tff-bar {bar_class(prob)}" style="width:{bar_w}%"></div></div>
-            </div>"""
-        cards_html += '</div>'
-
-        # --- แถวที่ 2 ---
-        cards_html += '<div class="tff-grid">'
-        for i, (label, prob) in enumerate(top5[3:]):
-            pct_str = f"{prob*100:.1f}%"
-            bar_w = int(prob * 100)
-            cards_html += f"""
-            <div class="tff-card">
-                <div class="tff-card-top">
-                    <span class="tff-rank">{i+4}</span>
-                    <span class="{pct_class(prob)}">{pct_str}</span>
-                </div>
-                <div class="tff-name">{label}</div>
-                <div class="tff-bar-bg"><div class="tff-bar {bar_class(prob)}" style="width:{bar_w}%"></div></div>
-            </div>"""
-        
-        cards_html += '<div class="tff-card" style="background:transparent;border:none;"></div>'
-        cards_html += '</div>'
-
-        st.markdown(cards_html, unsafe_allow_html=True)
-    else:
-        st.markdown('<p style="color:#888780;font-size:14px;font-family:Sarabun,sans-serif;">อัปโหลดรูปภาพเพื่อดูผลการพยากรณ์</p>', unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"โมเดลโหลดไม่สำเร็จ: {e}")
+        st.info("โปรดตรวจสอบว่าได้นำฟังก์ชันจาก Colab (เช่น get_y หรือ get_label) มาวางในบรรทัดที่กำหนดไว้ในโค้ดแล้วหรือยัง")
 
     st.markdown('</div>', unsafe_allow_html=True)
