@@ -1,6 +1,6 @@
 streamlit
 fastai
-timm==0.9.16
+timm
 omegaconf
 Pillow
 gdown

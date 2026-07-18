@@ -9,58 +9,20 @@ import sys
 import pathlib
 import pickle
 
+# 🎯 หัวใจสำคัญ: ต้อง Import ไลบรารีเหล่านี้มารอไว้ก่อนโหลดโมเดล
 import streamlit as st
 from PIL import Image, ImageOps
+import timm
+import omegaconf
+from fastai.vision.all import *
 from fastai.learner import load_learner
 import gdown
-
-# =========================================================================
-# 🎯 [ULTIMATE PATCH] สร้างประตูตรวจไฟล์ (SafeUnpickler) ของเราเอง
-# =========================================================================
-class DummyResolver:
-    """คลาสจำลองที่จะมาสลับตัวแทน Resolver ที่พัง เพื่อหลอกให้ระบบโหลดผ่าน"""
-    def __init__(self, *args, **kwargs): pass
-    def __setstate__(self, state): 
-        if isinstance(state, dict):
-            self.__dict__.update(state)
-    def __getattr__(self, key): 
-        return None
-    def __setattr__(self, key, value):
-        self.__dict__[key] = value
-
-class SafeUnpickler(pickle.Unpickler):
-    def find_class(self, module, name):
-        # ถ้าเจอตัวปัญหา ให้สลับเอาคลาสจำลองของเราใส่เข้าไปแทนทันที
-        if 'Resolver' in name or name == 'Resolver':
-            return DummyResolver
-        try:
-            return super().find_class(module, name)
-        except Exception:
-            # ถ้าหาคลาสของ omegaconf หรือ timm ไม่เจอ ก็สลับตัวจำลองไปแทน
-            if 'omegaconf' in module or 'timm' in module:
-                return DummyResolver
-            raise
-
-class SafePickle:
-    """ห่อประตูตรวจไฟล์ของเราให้ FastAI เรียกใช้"""
-    Unpickler = SafeUnpickler
-    @staticmethod
-    def load(file, **kwargs):
-        return SafeUnpickler(file, **kwargs).load()
-    loads = pickle.loads
-    dump = pickle.dump
-    dumps = pickle.dumps
 
 # แก้ปัญหาข้ามระบบปฏิบัติการ (Windows -> Linux)
 if platform.system() == 'Linux':
     pathlib.WindowsPath = pathlib.PosixPath
 else:
     pathlib.PosixPath = pathlib.WindowsPath
-
-import __main__
-if not hasattr(__main__, 'get_y'): setattr(__main__, 'get_y', lambda x: x.parent.name if hasattr(x, 'parent') else "")
-if not hasattr(__main__, 'get_label'): setattr(__main__, 'get_label', lambda x: x.parent.name if hasattr(x, 'parent') else "")
-# =========================================================================
 
 st.set_page_config(page_title="Thai Font Finder", page_icon="🔍", layout="wide")
 
@@ -124,7 +86,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-
 @st.cache_resource(show_spinner="กำลังดาวน์โหลดและโหลดโมเดล...")
 def load_model():
     file_id = '17m576pqSeWVpHk2vTbB5qPTXMNCdfqR8'
@@ -139,8 +100,7 @@ def load_model():
             return None
         
     if MODEL_PATH.exists() and MODEL_PATH.stat().st_size > 10240:
-        # บังคับใช้ SafePickle ของเราตอนโหลดไฟล์โมเดล!
-        return load_learner(MODEL_PATH, pickle_module=SafePickle)
+        return load_learner(MODEL_PATH)
     return None
 
 try:
