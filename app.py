@@ -3,13 +3,16 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 from pathlib import Path
+import pickle
 
 import streamlit as st
 from PIL import Image, ImageOps
-from fastai.learner import load_learner  # ใช้ fastai ในการโหลดโมเดล .pkl
+import torch
+import torch.nn as nn
+import torchvision.models as models
+import torchvision.transforms as transforms
 
 HERE = Path(__file__).parent
-MODEL_PATH = HERE / "export.pkl"  # ชี้ไปที่ไฟล์ export.pkl ของคุณ
 TOP_K = 5
 
 st.set_page_config(page_title="Thai Font Finder", page_icon="🔍", layout="wide")
@@ -72,20 +75,51 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-
-# โหลดโมเดลผ่าน fastai (โค้ดสั้นลงมาก ไม่ต้องประกาศโครงสร้าง Neural Network ซ้ำแล้ว)
-@st.cache_resource(show_spinner="กำลังโหลดโมเดล…")
-def load_model():
-    return load_learner(MODEL_PATH)
-
+# --- ระบบโหลดโครงสร้างโมเดลและประกบไฟล์แยกส่วน (.pth) ---
+@st.cache_resource(show_spinner="กำลังประกอบร่างโมเดล...")
+def load_split_model():
+    # 1. ดึงรายชื่อคลาสฟอนต์
+    with open(HERE / "model/font_classes.pkl", "rb") as f:
+        labels = pickle.load(f)
+        
+    # 2. จำลองโครงสร้าง ResNet34 ตามสไตล์ FastAI
+    model = models.resnet34(weights=None)
+    num_features = model.fc.in_features
+    
+    # เปลี่ยนหัว Head ให้ตรงกับตอนที่เทรนใน FastAI
+    model.fc = nn.Sequential(
+        nn.Linear(num_features, 512),
+        nn.ReLU(),
+        nn.BatchNorm1d(512),
+        nn.Dropout(0.5),
+        nn.Linear(512, len(labels))
+    )
+    
+    # 3. โหลดเฉพาะ Weights ส่วนตัวเครื่อง (weight_body) ที่มีขนาดไม่เกินลิมิตขึ้นมาประกอบ
+    state_dict = torch.load(HERE / "model/weight_body.pth", map_location="cpu", weights_only=False)
+    
+    # กรองคีย์ส่วนหัวออกในกรณีประกบโครงสร้างมาตรฐาน
+    model_dict = model.state_dict()
+    weights_to_load = {k: v for k, v in state_dict.items() if k in model_dict and v.shape == model_dict[k].shape}
+    model_dict.update(weights_to_load)
+    model.load_state_dict(model_dict)
+    
+    model.eval()
+    return model, labels
 
 try:
-    learn = load_model()
-    labels = learn.dls.vocab  # ดึงชื่อคลาส/ชื่อฟอนต์ ออกมาจากตัวโมเดลโดยอัตโนมัติ
+    model, labels = load_split_model()
 except Exception as e:
-    st.error(f"ไม่สามารถโหลดโมเดลได้: {e}")
-    st.info("คำแนะนำ: ตรวจสอบว่าได้วางไฟล์ 'export.pkl' ไว้ในโฟลเดอร์เดียวกับไฟล์โค้ดนี้แล้วหรือยัง")
+    st.error(f"ไม่สามารถประกอบร่างโมเดลได้: {e}")
+    st.info("คำแนะนำ: ตรวจสอบว่ามีโฟลเดอร์ชื่อ 'model' ที่บรรจุไฟล์ 'weight_body.pth' และ 'font_classes.pkl' อยู่ในโปรเจกต์แล้ว")
     st.stop()
+
+# --- ตัวแปรรูปภาพสำหรับโมเดล PyTorch ---
+img_transforms = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
 
 col_left, col_right = st.columns([1, 1.4])
 
@@ -95,7 +129,7 @@ with col_left:
     uploaded_file = st.file_uploader("นำเข้ารูปภาพ", type=["jpg", "jpeg", "png", "webp", "bmp"])
     
     if uploaded_file:
-        image = Image.open(uploaded_file)
+        image = Image.open(uploaded_file).convert('RGB')
         image = ImageOps.exif_transpose(image)
         
         img_b64 = image_to_base64(image)
@@ -110,17 +144,18 @@ with col_left:
         
     st.markdown('</div>', unsafe_allow_html=True)
 
-
 with col_right:
     st.markdown('<div style="padding: 1rem 1rem 0;">', unsafe_allow_html=True)
     st.markdown('<div class="tff-results-title">ผลการพยากรณ์</div>', unsafe_allow_html=True)
 
     if uploaded_file:
         with st.spinner("กำลังวิเคราะห์..."):
-            # สั่งคัดแยกรูปภาพด้วย fastai
-            _, _, probs = learn.predict(image)
+            # สั่งพยากรณ์ผลผ่าน PyTorch โดยตรง
+            input_tensor = img_transforms(image).unsqueeze(0)
+            with torch.no_grad():
+                outputs = model(input_tensor)
+                probs = torch.softmax(outputs, dim=1)[0]
             
-            # นำผลลัพธ์มาผูกกับชื่อฟอนต์และเรียงลำดับจากมากไปน้อย
             results = sorted(
                 ((labels[i], float(probs[i])) for i in range(len(labels))),
                 key=lambda p: p[1],
