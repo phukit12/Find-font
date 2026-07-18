@@ -1,5 +1,5 @@
-torch
-torchvision
-fastai
+torch==2.3.0
+torchvision==0.18.0
+fastai==2.7.15
 streamlit
 Pillow
