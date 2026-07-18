@@ -34,7 +34,7 @@ st.markdown("""
 <style>
 .stApp { background-color: #f0ead8; }
 #MainMenu, footer, header { visibility: hidden; }
-.block-container { padding: 0 !important; max-width: 100% !important; }
+.block-container { padding: 0 5% 3rem 5% !important; max-width: 1400px !important; margin: 0 auto !important; }
 .tff-page { background: transparent; min-height: 100vh; font-family: 'Sarabun', sans-serif; }
 .tff-header { position: relative; background: #f0ead8; padding: 1.6rem 1rem 1.3rem; text-align: center; overflow: hidden; min-height: 130px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 0.5px solid #d6cebc; }
 .tff-hbg { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
