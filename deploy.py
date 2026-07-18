@@ -74,7 +74,8 @@ st.markdown("""
 .stApp { background-color: #f0ead8; }
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding: 0 !important; max-width: 100% !important; }
-.tff-page { background: transparent; min-height: 100vh; font-family: 'Sarabun', sans-serif; }
+/* 🎯 เอา min-height: 100vh; ออกตรงบรรทัดด้านล่างนี้ครับ */
+.tff-page { background: transparent; font-family: 'Sarabun', sans-serif; }
 .tff-header { position: relative; background: #f0ead8; padding: 1.6rem 1rem 1.3rem; text-align: center; overflow: hidden; min-height: 130px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 0.5px solid #d6cebc; }
 .tff-hbg { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
 .tff-hbg-row { white-space: nowrap; font-size: 30px; font-family: 'Sarabun', sans-serif; color: rgba(80,60,20,0.13); line-height: 1.6; letter-spacing: 8px; }
