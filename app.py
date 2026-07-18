@@ -6,44 +6,52 @@ from pathlib import Path
 import platform
 import os
 import sys
-import weakref
 import pathlib
 import pickle
 
+import streamlit as st
+from PIL import Image, ImageOps
+from fastai.learner import load_learner
+import gdown
+
 # =========================================================================
-# 🎯 [MASTER PATCH] ระบบดักจับและแก้ไขบั๊ก Resolver 100% ( foolproof )
+# 🎯 [ULTIMATE PATCH] สร้างประตูตรวจไฟล์ (SafeUnpickler) ของเราเอง
 # =========================================================================
-class SafeDictDescriptor:
-    def __init__(self): 
-        self.data = weakref.WeakKeyDictionary()
-    def __get__(self, instance, owner):
-        if instance is None: return self
+class DummyResolver:
+    """คลาสจำลองที่จะมาสลับตัวแทน Resolver ที่พัง เพื่อหลอกให้ระบบโหลดผ่าน"""
+    def __init__(self, *args, **kwargs): pass
+    def __setstate__(self, state): 
+        if isinstance(state, dict):
+            self.__dict__.update(state)
+    def __getattr__(self, key): 
+        return None
+    def __setattr__(self, key, value):
+        self.__dict__[key] = value
+
+class SafeUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        # ถ้าเจอตัวปัญหา ให้สลับเอาคลาสจำลองของเราใส่เข้าไปแทนทันที
+        if 'Resolver' in name or name == 'Resolver':
+            return DummyResolver
         try:
-            if instance not in self.data: 
-                self.data[instance] = {}
-            return self.data[instance]
-        except: 
-            return {}
-    def __set__(self, instance, value):
-        try: 
-            self.data[instance] = value
-        except: 
-            pass
+            return super().find_class(module, name)
+        except Exception:
+            # ถ้าหาคลาสของ omegaconf หรือ timm ไม่เจอ ก็สลับตัวจำลองไปแทน
+            if 'omegaconf' in module or 'timm' in module:
+                return DummyResolver
+            raise
 
-# ใช้ระบบระดับลึก ดักจับคลาสตอนที่กำลัง Unpickle โมเดลทันที ไม่ว่าจะโหลดเข้ามารูปแบบไหน
-orig_find_class = pickle.Unpickler.find_class
-def patched_find_class(self, module, name):
-    cls = orig_find_class(self, module, name)
-    try:
-        if isinstance(cls, type) and ('Resolver' in cls.__name__ or name == 'Resolver'):
-            if not hasattr(cls, 'dict'):
-                setattr(cls, 'dict', SafeDictDescriptor())
-    except:
-        pass
-    return cls
-pickle.Unpickler.find_class = patched_find_class
+class SafePickle:
+    """ห่อประตูตรวจไฟล์ของเราให้ FastAI เรียกใช้"""
+    Unpickler = SafeUnpickler
+    @staticmethod
+    def load(file, **kwargs):
+        return SafeUnpickler(file, **kwargs).load()
+    loads = pickle.loads
+    dump = pickle.dump
+    dumps = pickle.dumps
 
-# ปรับแต่งระบบ Path ให้รองรับการข้ามระบบปฏิบัติการ (Windows -> Linux)
+# แก้ปัญหาข้ามระบบปฏิบัติการ (Windows -> Linux)
 if platform.system() == 'Linux':
     pathlib.WindowsPath = pathlib.PosixPath
 else:
@@ -54,24 +62,17 @@ if not hasattr(__main__, 'get_y'): setattr(__main__, 'get_y', lambda x: x.parent
 if not hasattr(__main__, 'get_label'): setattr(__main__, 'get_label', lambda x: x.parent.name if hasattr(x, 'parent') else "")
 # =========================================================================
 
-import streamlit as st
-from PIL import Image, ImageOps
-from fastai.learner import load_learner
-import gdown
+st.set_page_config(page_title="Thai Font Finder", page_icon="🔍", layout="wide")
 
 HERE = Path(__file__).parent
 MODEL_PATH = HERE / "export.pkl"
 TOP_K = 5
 
-st.set_page_config(page_title="Thai Font Finder", page_icon="🔍", layout="wide")
-
-# --- ฟังก์ชันแปลงรูปเป็น Base64 เพื่อให้ใส่ใน HTML ได้ ---
 def image_to_base64(img: Image.Image):
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-# --- CSS & Header HTML (ดั้งเดิมที่คุณออกแบบไว้) ---
 st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -124,12 +125,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- ระบบโหลดโมเดลจาก Google Drive ---
-@st.cache_resource(show_spinner="กำลังดาวน์โหลดและโหลดโมเดล (ใช้เวลาครั้งแรกประมาณ 1-2 นาที)...")
+@st.cache_resource(show_spinner="กำลังดาวน์โหลดและโหลดโมเดล...")
 def load_model():
     file_id = '17m576pqSeWVpHk2vTbB5qPTXMNCdfqR8'
-    
-    # ดักจับและเคลียร์ไฟล์เสียขนาดเล็ก
     if MODEL_PATH.exists() and MODEL_PATH.stat().st_size < 10240:
         MODEL_PATH.unlink()
         
@@ -141,7 +139,8 @@ def load_model():
             return None
         
     if MODEL_PATH.exists() and MODEL_PATH.stat().st_size > 10240:
-        return load_learner(MODEL_PATH)
+        # บังคับใช้ SafePickle ของเราตอนโหลดไฟล์โมเดล!
+        return load_learner(MODEL_PATH, pickle_module=SafePickle)
     return None
 
 try:
@@ -149,25 +148,21 @@ try:
     if learn is not None:
         labels = learn.dls.vocab
     else:
-        st.error("ไม่สามารถเปิดไฟล์โมเดลได้ เนื่องจากไฟล์ไม่สมบูรณ์")
+        st.error("ไม่สามารถเปิดไฟล์โมเดลได้")
         st.stop()
 except Exception as e:
     st.error(f"ไม่สามารถโหลดโมเดลได้: {e}")
     st.stop()
 
-
-# --- ส่วนอินเทอร์เฟซอัปโหลดและแสดงผล (โค้ดดั้งเดิมของคุณ) ---
 col_left, col_right = st.columns([1, 1.4])
 
 with col_left:
     st.markdown('<div style="padding: 1rem 1rem 0.5rem; font-family: Sarabun, sans-serif;">', unsafe_allow_html=True)
-    
     uploaded_file = st.file_uploader("นำเข้ารูปภาพ", type=["jpg", "jpeg", "png", "webp", "bmp"])
     
     if uploaded_file:
         image = Image.open(uploaded_file)
         image = ImageOps.exif_transpose(image)
-        
         img_b64 = image_to_base64(image)
         preview_html = f'''
         <div class="tff-preview-box" style="padding: 0;">
@@ -177,7 +172,6 @@ with col_left:
         st.markdown(preview_html, unsafe_allow_html=True)
     else:
         st.markdown('<div class="tff-preview-box">พรีวิวรูปภาพที่อัปโหลด</div>', unsafe_allow_html=True)
-        
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
@@ -187,12 +181,7 @@ with col_right:
     if uploaded_file:
         with st.spinner("กำลังวิเคราะห์..."):
             _, _, probs = learn.predict(image)
-            
-            results = sorted(
-                ((labels[i], float(probs[i])) for i in range(len(labels))),
-                key=lambda p: p[1],
-                reverse=True,
-            )
+            results = sorted(((labels[i], float(probs[i])) for i in range(len(labels))), key=lambda p: p[1], reverse=True)
 
         def pct_class(p):
             if p >= 0.85: return "tff-pct-high"
@@ -206,7 +195,6 @@ with col_right:
 
         top5 = results[:TOP_K]
         
-        # --- แถวที่ 1 ---
         cards_html = '<div class="tff-grid">'
         for i, (label, prob) in enumerate(top5[:3]):
             top_cls = "top" if i == 0 else ""
@@ -223,7 +211,6 @@ with col_right:
             </div>"""
         cards_html += '</div>'
 
-        # --- แถวที่ 2 ---
         cards_html += '<div class="tff-grid">'
         for i, (label, prob) in enumerate(top5[3:]):
             pct_str = f"{prob*100:.1f}%"
@@ -238,11 +225,8 @@ with col_right:
                 <div class="tff-bar-bg"><div class="tff-bar {bar_class(prob)}" style="width:{bar_w}%"></div></div>
             </div>"""
         
-        cards_html += '<div class="tff-card" style="background:transparent;border:none;"></div>'
-        cards_html += '</div>'
-
+        cards_html += '<div class="tff-card" style="background:transparent;border:none;"></div></div>'
         st.markdown(cards_html, unsafe_allow_html=True)
     else:
         st.markdown('<p style="color:#888780;font-size:14px;font-family:Sarabun,sans-serif;">อัปโหลดรูปภาพเพื่อดูผลการพยากรณ์</p>', unsafe_allow_html=True)
-
     st.markdown('</div>', unsafe_allow_html=True)
