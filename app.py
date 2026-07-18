@@ -3,16 +3,15 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 from pathlib import Path
-import pickle
+import os
 
 import streamlit as st
 from PIL import Image, ImageOps
-import torch
-import torch.nn as nn
-import torchvision.models as models
-import torchvision.transforms as transforms
+from fastai.learner import load_learner
+import gdown
 
 HERE = Path(__file__).parent
+MODEL_PATH = HERE / "export.pkl"
 TOP_K = 5
 
 st.set_page_config(page_title="Thai Font Finder", page_icon="🔍", layout="wide")
@@ -23,7 +22,7 @@ def image_to_base64(img: Image.Image):
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-# --- CSS & Header HTML ---
+# --- CSS & Header HTML (ดั้งเดิมที่คุณออกแบบไว้) ---
 st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -75,52 +74,28 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- ระบบโหลดโครงสร้างโมเดลและประกบไฟล์แยกส่วน (.pth) ---
-@st.cache_resource(show_spinner="กำลังประกอบร่างโมเดล...")
-def load_split_model():
-    # 1. ดึงรายชื่อคลาสฟอนต์
-    with open(HERE / "model/font_classes.pkl", "rb") as f:
-        labels = pickle.load(f)
+
+# --- ระบบโหลดโมเดลจาก Google Drive ---
+@st.cache_resource(show_spinner="กำลังดาวน์โหลดและโหลดโมเดล (ใช้เวลาครั้งแรกประมาณ 1-2 นาที)...")
+def load_model():
+    file_id = '17m576pqSeWVpHk2vTbB5qPTXMNCdfqR8'
+    
+    # ถ้ายังไม่มีไฟล์ในเครื่องเซิร์ฟเวอร์ ให้ดาวน์โหลดจาก Google Drive
+    if not MODEL_PATH.exists():
+        url = f'https://drive.google.com/uc?id={file_id}'
+        gdown.download(url, str(MODEL_PATH), quiet=False)
         
-    # 2. จำลองโครงสร้าง ResNet34 ตามสไตล์ FastAI
-    model = models.resnet34(weights=None)
-    num_features = model.fc.in_features
-    
-    # เปลี่ยนหัว Head ให้ตรงกับตอนที่เทรนใน FastAI
-    model.fc = nn.Sequential(
-        nn.Linear(num_features, 512),
-        nn.ReLU(),
-        nn.BatchNorm1d(512),
-        nn.Dropout(0.5),
-        nn.Linear(512, len(labels))
-    )
-    
-    # 3. โหลดเฉพาะ Weights ส่วนตัวเครื่อง (weight_body) ที่มีขนาดไม่เกินลิมิตขึ้นมาประกอบ
-    state_dict = torch.load(HERE / "model/weight_body.pth", map_location="cpu", weights_only=False)
-    
-    # กรองคีย์ส่วนหัวออกในกรณีประกบโครงสร้างมาตรฐาน
-    model_dict = model.state_dict()
-    weights_to_load = {k: v for k, v in state_dict.items() if k in model_dict and v.shape == model_dict[k].shape}
-    model_dict.update(weights_to_load)
-    model.load_state_dict(model_dict)
-    
-    model.eval()
-    return model, labels
+    return load_learner(MODEL_PATH)
 
 try:
-    model, labels = load_split_model()
+    learn = load_model()
+    labels = learn.dls.vocab
 except Exception as e:
-    st.error(f"ไม่สามารถประกอบร่างโมเดลได้: {e}")
-    st.info("คำแนะนำ: ตรวจสอบว่ามีโฟลเดอร์ชื่อ 'model' ที่บรรจุไฟล์ 'weight_body.pth' และ 'font_classes.pkl' อยู่ในโปรเจกต์แล้ว")
+    st.error(f"ไม่สามารถโหลดโมเดลได้: {e}")
     st.stop()
 
-# --- ตัวแปรรูปภาพสำหรับโมเดล PyTorch ---
-img_transforms = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
 
+# --- ส่วนอินเทอร์เฟซอัปโหลดและแสดงผล (โค้ดดั้งเดิม) ---
 col_left, col_right = st.columns([1, 1.4])
 
 with col_left:
@@ -129,7 +104,7 @@ with col_left:
     uploaded_file = st.file_uploader("นำเข้ารูปภาพ", type=["jpg", "jpeg", "png", "webp", "bmp"])
     
     if uploaded_file:
-        image = Image.open(uploaded_file).convert('RGB')
+        image = Image.open(uploaded_file)
         image = ImageOps.exif_transpose(image)
         
         img_b64 = image_to_base64(image)
@@ -150,11 +125,7 @@ with col_right:
 
     if uploaded_file:
         with st.spinner("กำลังวิเคราะห์..."):
-            # สั่งพยากรณ์ผลผ่าน PyTorch โดยตรง
-            input_tensor = img_transforms(image).unsqueeze(0)
-            with torch.no_grad():
-                outputs = model(input_tensor)
-                probs = torch.softmax(outputs, dim=1)[0]
+            _, _, probs = learn.predict(image)
             
             results = sorted(
                 ((labels[i], float(probs[i])) for i in range(len(labels))),
@@ -174,7 +145,7 @@ with col_right:
 
         top5 = results[:TOP_K]
         
-        # --- แถวที่ 1 (อันดับ 1-3) ---
+        # --- แถวที่ 1 ---
         cards_html = '<div class="tff-grid">'
         for i, (label, prob) in enumerate(top5[:3]):
             top_cls = "top" if i == 0 else ""
@@ -191,7 +162,7 @@ with col_right:
             </div>"""
         cards_html += '</div>'
 
-        # --- แถวที่ 2 (อันดับ 4-5) ---
+        # --- แถวที่ 2 ---
         cards_html += '<div class="tff-grid">'
         for i, (label, prob) in enumerate(top5[3:]):
             pct_str = f"{prob*100:.1f}%"
