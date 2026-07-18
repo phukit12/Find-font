@@ -3,9 +3,54 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 from pathlib import Path
+import platform
 import os
+import sys
+import weakref
+import pathlib
 
-import streamlit as st
+# =========================================================================
+# 🛡️ ระบบ Patch เบื้องหลัง (ป้องกันบั๊กเวอร์ชันขัดแย้ง และ บั๊กข้ามระบบปฏิบัติการ)
+# =========================================================================
+try:
+    import omegaconf
+    for sub in ['resolvers', '_utils', 'base', 'config']:
+        try: __import__(f'omegaconf.{sub}')
+        except: pass
+except: pass
+
+class SafeDictDescriptor:
+    def __init__(self): self.data = weakref.WeakKeyDictionary()
+    def __get__(self, instance, owner):
+        if instance is None: return self
+        try:
+            if instance not in self.data: self.data[instance] = {}
+            return self.data[instance]
+        except: return {}
+    def __set__(self, instance, value):
+        try: self.data[instance] = value
+        except: pass
+
+for mod_name, module in list(sys.modules.items()):
+    if mod_name.startswith('omegaconf') or mod_name.startswith('timm'):
+        for attr_name in dir(module):
+            try:
+                attr = getattr(module, attr_name)
+                if isinstance(attr, type) and 'Resolver' in attr.__name__:
+                    if not hasattr(attr, 'dict'): setattr(attr, 'dict', SafeDictDescriptor())
+            except: pass
+
+if platform.system() == 'Linux':
+    pathlib.WindowsPath = pathlib.PosixPath
+else:
+    pathlib.PosixPath = pathlib.WindowsPath
+
+import __main__
+if not hasattr(__main__, 'get_y'): setattr(__main__, 'get_y', lambda x: x.parent.name if hasattr(x, 'parent') else "")
+if not hasattr(__main__, 'get_label'): setattr(__main__, 'get_label', lambda x: x.parent.name if hasattr(x, 'parent') else "")
+# =========================================================================
+
+import streamlit as st  # แก้ไขจุดพิมพ์ตกตรงนี้เรียบร้อยครับ!
 from PIL import Image, ImageOps
 from fastai.learner import load_learner
 import gdown
@@ -16,7 +61,7 @@ TOP_K = 5
 
 st.set_page_config(page_title="Thai Font Finder", page_icon="🔍", layout="wide")
 
-# --- ฟังก์ชันแปลงรูปเป็น Base64 เพื่อให้ใส่ใน HTML ได้ ---
+# --- ฟังก์ชันแปลงรูปเป็น Base64 เพื่อให้ใส่ in HTML ได้ ---
 def image_to_base64(img: Image.Image):
     buffered = BytesIO()
     img.save(buffered, format="PNG")
@@ -75,27 +120,42 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- ระบบโหลดโมเดลจาก Google Drive ---
+# --- ระบบโหลดโมเดลจาก Google Drive (ปรับปรุงเพื่อรองรับไฟล์ขนาดใหญ่และเคลียร์ไฟล์เสีย) ---
 @st.cache_resource(show_spinner="กำลังดาวน์โหลดและโหลดโมเดล (ใช้เวลาครั้งแรกประมาณ 1-2 นาที)...")
 def load_model():
+    # ใส่ File ID ตัวใหม่จากลิงก์ที่คุณส่งมาให้เรียบร้อยครับ
     file_id = '17m576pqSeWVpHk2vTbB5qPTXMNCdfqR8'
     
-    # ถ้ายังไม่มีไฟล์ในเครื่องเซิร์ฟเวอร์ ให้ดาวน์โหลดจาก Google Drive
-    if not MODEL_PATH.exists():
-        url = f'https://drive.google.com/uc?id={file_id}'
-        gdown.download(url, str(MODEL_PATH), quiet=False)
+    # ดักจับเคลียร์ไฟล์เสียที่ขนาดเล็กเกินไป (ป้องกันไฟล์ 0 bytes ค้างในเซิร์ฟเวอร์)
+    if MODEL_PATH.exists() and MODEL_PATH.stat().st_size < 10240:
+        MODEL_PATH.unlink()
         
-    return load_learner(MODEL_PATH)
+    # ถ้ายังไม่มีไฟล์ หรือเพิ่งลบไฟล์เสียไป ให้ดาวน์โหลดผ่าน ID โดยตรง
+    if not MODEL_PATH.exists():
+        try:
+            # ใช้ gdown ผ่าน id ตรง ๆ เพื่อทะลุหน้าแจ้งเตือนไฟล์ใหญ่ของกูเกิลได้สมบูรณ์
+            gdown.download(id=file_id, output=str(MODEL_PATH), quiet=False)
+        except Exception as e:
+            st.error(f"ดาวน์โหลดโมเดลล้มเหลว: {e}")
+            return None
+        
+    if MODEL_PATH.exists() and MODEL_PATH.stat().st_size > 10240:
+        return load_learner(MODEL_PATH)
+    return None
 
 try:
     learn = load_model()
-    labels = learn.dls.vocab
+    if learn is not None:
+        labels = learn.dls.vocab
+    else:
+        st.error("ไม่สามารถเปิดไฟล์โมเดลได้ เนื่องจากไฟล์ไม่สมบูรณ์")
+        st.stop()
 except Exception as e:
     st.error(f"ไม่สามารถโหลดโมเดลได้: {e}")
     st.stop()
 
 
-# --- ส่วนอินเทอร์เฟซอัปโหลดและแสดงผล (โค้ดดั้งเดิม) ---
+# --- ส่วนอินเทอร์เฟซอัปโหลดและแสดงผล (โค้ดดั้งเดิมของคุณ) ---
 col_left, col_right = st.columns([1, 1.4])
 
 with col_left:
