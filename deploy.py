@@ -37,13 +37,27 @@ def image_to_base64(img: Image.Image):
     return base64.b64encode(buffered.getvalue()).decode()
 
 # --- CSS & Header HTML ---
-# เอาบรรทัดว่างออกทั้งหมดเพื่อป้องกัน Streamlit บั๊ก (ที่ทำให้โค้ด CSS ทะลุออกมาหน้าเว็บ)
 st.markdown('''
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 .stApp { background-color: #f0ead8; }
 #MainMenu, footer, header { visibility: hidden; }
-.block-container { padding-top: 0 !important; padding-bottom: 3rem !important; max-width: 1200px !important; margin: 0 auto !important; }
+
+/* แก้ไขให้เต็มจอ 100% ชิดขอบ */
+.block-container { 
+    padding-top: 0 !important; 
+    padding-bottom: 3rem !important; 
+    max-width: 100% !important; 
+    margin: 0 auto !important; 
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+/* เพิ่ม Padding ให้คอลัมน์เนื้อหาด้านล่างไม่เบียดขอบจอ */
+div[data-testid="stHorizontalBlock"] {
+    padding: 0 2rem !important;
+}
+
 .stMarkdown { margin-bottom: 0 !important; }
 div[data-testid="stVerticalBlock"] { gap: 1rem !important; }
 .tff-page { background: transparent; font-family: 'Sarabun', sans-serif; }
@@ -189,4 +203,4 @@ with col_right:
 
     except Exception as e:
         st.error(f"โมเดลโหลดไม่สำเร็จ: {e}")
-        st.info("โปรดตรวจสอบให้แน่ใจว่าติดตั้งไลบรารีครบถ้วนใน requirements.txt (เช่น timm และ omegaconf)")
+        st.info("โปรดตรวจสอบให้แน่ใจว่าติดตั้งไลบรารีครบถ้วนใน requirements.txt (เช่น timm และ omegaconf ให้เวอร์ชันตรงกับเครื่องที่ใช้เทรน)")
