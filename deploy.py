@@ -17,27 +17,18 @@ import pathlib
 if platform.system() == 'Linux':
     pathlib.WindowsPath = pathlib.PosixPath
 
+# --- ป้องกัน Error จาก Custom Function ที่หายไปตอนโหลดโมเดล ---
+import __main__
+if not hasattr(__main__, 'get_y'):
+    setattr(__main__, 'get_y', lambda x: x.parent.name if hasattr(x, 'parent') else "")
+if not hasattr(__main__, 'get_label'):
+    setattr(__main__, 'get_label', lambda x: x.parent.name if hasattr(x, 'parent') else "")
+
 HERE = Path(__file__).parent
 MODEL_PATH = HERE / "export.pkl"
 TOP_K = 5
 
 st.set_page_config(page_title="Thai Font Finder", page_icon="🔍", layout="wide")
-
-# ====================================================================
-# 🛑 จุดแก้ปัญหา Error: 'Resolver' object has no attribute 'dict' 🛑
-# ====================================================================
-# หากตอนเทรนมีการใช้ไลบรารีเช่น omegaconf, timm บางครั้งมันจะฝัง class
-# แปลกๆ มากับตัวโมเดล ลองเพิ่มคลาสหรือฟังก์ชันหลอกๆ ไว้ก่อนเพื่อไม่ให้ FastAI โวยวาย
-class DummyResolver:
-    def dict(self): pass
-
-# เพิ่มเข้าไปใน namespace เผื่อว่าโมเดลจะเรียกหา
-sys.modules['omegaconf'] = type('omegaconf', (), {'Resolver': DummyResolver})()
-sys.modules['omegaconf.resolvers'] = type('resolvers', (), {'Resolver': DummyResolver})()
-
-# --- หากคุณมีฟังก์ชัน get_y, get_label จาก Colab ให้ใส่ตรงนี้ด้วยครับ ---
-# def get_y(x): return x.parent.name
-# ====================================================================
 
 # --- ฟังก์ชันแปลงรูปเป็น Base64 ---
 def image_to_base64(img: Image.Image):
@@ -45,41 +36,18 @@ def image_to_base64(img: Image.Image):
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-# --- CSS & Header HTML (ปรับแก้เรื่องช่องว่างแล้ว) ---
-st.markdown("""
+# --- CSS & Header HTML ---
+# เอาบรรทัดว่างออกทั้งหมดเพื่อป้องกัน Streamlit บั๊ก (ที่ทำให้โค้ด CSS ทะลุออกมาหน้าเว็บ)
+st.markdown('''
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 .stApp { background-color: #f0ead8; }
 #MainMenu, footer, header { visibility: hidden; }
-
-/* ปรับระยะห่างและขอบเขตของเนื้อหา Streamlit ให้กระชับ */
-.block-container { 
-    padding-top: 0 !important; 
-    padding-bottom: 3rem !important; 
-    max-width: 1200px !important; 
-    margin: 0 auto !important; 
-}
-
-/* ลดพื้นที่ว่างระหว่าง block */
+.block-container { padding-top: 0 !important; padding-bottom: 3rem !important; max-width: 1200px !important; margin: 0 auto !important; }
 .stMarkdown { margin-bottom: 0 !important; }
 div[data-testid="stVerticalBlock"] { gap: 1rem !important; }
-
 .tff-page { background: transparent; font-family: 'Sarabun', sans-serif; }
-
-/* ปรับ Header ให้ไม่กินพื้นที่เยอะไป */
-.tff-header { 
-    position: relative; 
-    background: #f0ead8; 
-    padding: 2rem 1rem 1.5rem; 
-    text-align: center; 
-    overflow: hidden; 
-    display: flex; 
-    flex-direction: column; 
-    align-items: center; 
-    justify-content: center; 
-    border-bottom: 1px solid #d6cebc; 
-    margin-bottom: 2rem;
-}
+.tff-header { position: relative; background: #f0ead8; padding: 2rem 1rem 1.5rem; text-align: center; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid #d6cebc; margin-bottom: 2rem; }
 .tff-hbg { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
 .tff-hbg-row { white-space: nowrap; font-size: 30px; font-family: 'Sarabun', sans-serif; color: rgba(80,60,20,0.13); line-height: 1.6; letter-spacing: 8px; }
 .tff-logo { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: 'Sarabun', sans-serif; }
@@ -104,7 +72,6 @@ div[data-testid="stVerticalBlock"] { gap: 1rem !important; }
 .tff-bar-gray   { background: #b4b2a9; }
 .tff-preview-box { border: 1.5px dashed #b4b2a9; border-radius: 10px; background: rgba(255,255,255,0.35); padding: 1rem; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Sarabun', sans-serif; color: #888780; font-size: 13px; overflow: hidden; }
 </style>
-
 <div class="tff-page">
 <div class="tff-header">
     <div class="tff-hbg">
@@ -121,7 +88,7 @@ div[data-testid="stVerticalBlock"] { gap: 1rem !important; }
     <div class="tff-subtitle">โปรแกรมค้นหาฟอนต์ภาษาไทย</div>
 </div>
 </div>
-""", unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
 
 # --- ระบบโหลดโมเดลจาก Google Drive ---
@@ -189,7 +156,7 @@ with col_right:
                 top_cls = "top" if i == 0 else ""
                 pct_str = f"{prob*100:.1f}%"
                 bar_w = int(prob * 100)
-                cards_html += f"""
+                cards_html += f'''
                 <div class="tff-card {top_cls}">
                     <div class="tff-card-top">
                         <span class="tff-rank">{i+1}</span>
@@ -197,14 +164,14 @@ with col_right:
                     </div>
                     <div class="tff-name">{label}</div>
                     <div class="tff-bar-bg"><div class="tff-bar {bar_class(prob)}" style="width:{bar_w}%"></div></div>
-                </div>"""
+                </div>'''
             cards_html += '</div>'
 
             cards_html += '<div class="tff-grid">'
             for i, (label, prob) in enumerate(top5[3:]):
                 pct_str = f"{prob*100:.1f}%"
                 bar_w = int(prob * 100)
-                cards_html += f"""
+                cards_html += f'''
                 <div class="tff-card">
                     <div class="tff-card-top">
                         <span class="tff-rank">{i+4}</span>
@@ -212,7 +179,7 @@ with col_right:
                     </div>
                     <div class="tff-name">{label}</div>
                     <div class="tff-bar-bg"><div class="tff-bar {bar_class(prob)}" style="width:{bar_w}%"></div></div>
-                </div>"""
+                </div>'''
             cards_html += '<div class="tff-card" style="background:transparent;border:none;"></div>'
             cards_html += '</div>'
 
@@ -222,4 +189,4 @@ with col_right:
 
     except Exception as e:
         st.error(f"โมเดลโหลดไม่สำเร็จ: {e}")
-        st.info("หากยังมี Error เกี่ยวกับฟังก์ชัน ให้แน่ใจว่าได้นำฟังก์ชันจาก Colab มาวางในโค้ดแล้ว (บรรทัดที่ 37)")
+        st.info("โปรดตรวจสอบให้แน่ใจว่าติดตั้งไลบรารีครบถ้วนใน requirements.txt (เช่น timm และ omegaconf)")
