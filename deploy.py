@@ -5,13 +5,14 @@ from io import BytesIO
 from pathlib import Path
 import platform
 import os
+import sys
 
 import streamlit as st
 from PIL import Image, ImageOps
 from fastai.learner import load_learner
 import gdown
 
-# --- แก้ปัญหา Path หากเทรนบน Windows แล้วมารันบน Linux/Streamlit ---
+# --- แก้ปัญหา Path สำหรับข้าม OS ---
 import pathlib
 if platform.system() == 'Linux':
     pathlib.WindowsPath = pathlib.PosixPath
@@ -22,21 +23,63 @@ TOP_K = 5
 
 st.set_page_config(page_title="Thai Font Finder", page_icon="🔍", layout="wide")
 
-# --- ฟังก์ชันแปลงรูปเป็น Base64 เพื่อให้ใส่ใน HTML ได้ ---
+# ====================================================================
+# 🛑 จุดแก้ปัญหา Error: 'Resolver' object has no attribute 'dict' 🛑
+# ====================================================================
+# หากตอนเทรนมีการใช้ไลบรารีเช่น omegaconf, timm บางครั้งมันจะฝัง class
+# แปลกๆ มากับตัวโมเดล ลองเพิ่มคลาสหรือฟังก์ชันหลอกๆ ไว้ก่อนเพื่อไม่ให้ FastAI โวยวาย
+class DummyResolver:
+    def dict(self): pass
+
+# เพิ่มเข้าไปใน namespace เผื่อว่าโมเดลจะเรียกหา
+sys.modules['omegaconf'] = type('omegaconf', (), {'Resolver': DummyResolver})()
+sys.modules['omegaconf.resolvers'] = type('resolvers', (), {'Resolver': DummyResolver})()
+
+# --- หากคุณมีฟังก์ชัน get_y, get_label จาก Colab ให้ใส่ตรงนี้ด้วยครับ ---
+# def get_y(x): return x.parent.name
+# ====================================================================
+
+# --- ฟังก์ชันแปลงรูปเป็น Base64 ---
 def image_to_base64(img: Image.Image):
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-# --- CSS & Header HTML ---
+# --- CSS & Header HTML (ปรับแก้เรื่องช่องว่างแล้ว) ---
 st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 .stApp { background-color: #f0ead8; }
 #MainMenu, footer, header { visibility: hidden; }
-.block-container { padding: 0 5% 3rem 5% !important; max-width: 1400px !important; margin: 0 auto !important; }
-.tff-page { background: transparent; min-height: 100vh; font-family: 'Sarabun', sans-serif; }
-.tff-header { position: relative; background: #f0ead8; padding: 1.6rem 1rem 1.3rem; text-align: center; overflow: hidden; min-height: 130px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 0.5px solid #d6cebc; }
+
+/* ปรับระยะห่างและขอบเขตของเนื้อหา Streamlit ให้กระชับ */
+.block-container { 
+    padding-top: 0 !important; 
+    padding-bottom: 3rem !important; 
+    max-width: 1200px !important; 
+    margin: 0 auto !important; 
+}
+
+/* ลดพื้นที่ว่างระหว่าง block */
+.stMarkdown { margin-bottom: 0 !important; }
+div[data-testid="stVerticalBlock"] { gap: 1rem !important; }
+
+.tff-page { background: transparent; font-family: 'Sarabun', sans-serif; }
+
+/* ปรับ Header ให้ไม่กินพื้นที่เยอะไป */
+.tff-header { 
+    position: relative; 
+    background: #f0ead8; 
+    padding: 2rem 1rem 1.5rem; 
+    text-align: center; 
+    overflow: hidden; 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center; 
+    border-bottom: 1px solid #d6cebc; 
+    margin-bottom: 2rem;
+}
 .tff-hbg { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
 .tff-hbg-row { white-space: nowrap; font-size: 30px; font-family: 'Sarabun', sans-serif; color: rgba(80,60,20,0.13); line-height: 1.6; letter-spacing: 8px; }
 .tff-logo { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: 'Sarabun', sans-serif; }
@@ -81,37 +124,22 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# =========================================================
-# 🛑 นำฟังก์ชันที่คุณสร้างไว้ตอนเทรนโมเดลใน Colab มาวางตรงนี้ 🛑
-# ตัวอย่างเช่น:
-# def get_label(x):
-#     return x.parent.name
-# =========================================================
-
-
-
-
-# =========================================================
-
 # --- ระบบโหลดโมเดลจาก Google Drive ---
 @st.cache_resource(show_spinner="กำลังดาวน์โหลดและโหลดโมเดล (ใช้เวลาครั้งแรกประมาณ 1-2 นาที)...")
 def load_model():
     file_id = '17m576pqSeWVpHk2vTbB5qPTXMNCdfqR8'
-    
     if not MODEL_PATH.exists():
         url = f'https://drive.google.com/uc?id={file_id}'
         gdown.download(url, str(MODEL_PATH), quiet=False)
-        
     return load_learner(MODEL_PATH)
 
 
-# --- โครงสร้างหน้าเว็บ (เอามาไว้ข้างนอกเพื่อให้แสดงผลตลอดเวลา) ---
-col_left, col_right = st.columns([1, 1.4])
+# --- โครงสร้างหน้าเว็บ ---
+col_left, col_right = st.columns([1, 1.4], gap="large")
 
 with col_left:
-    st.markdown('<div style="padding: 1rem 1rem 0.5rem; font-family: Sarabun, sans-serif;">', unsafe_allow_html=True)
-    
-    uploaded_file = st.file_uploader("นำเข้ารูปภาพ", type=["jpg", "jpeg", "png", "webp", "bmp"])
+    st.markdown('<div style="font-family: Sarabun, sans-serif; font-size: 14px; font-weight: bold; margin-bottom: 8px;">นำเข้ารูปภาพ</div>', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("", type=["jpg", "jpeg", "png", "webp", "bmp"], label_visibility="collapsed")
     
     if uploaded_file:
         image = Image.open(uploaded_file)
@@ -126,14 +154,10 @@ with col_left:
         st.markdown(preview_html, unsafe_allow_html=True)
     else:
         st.markdown('<div class="tff-preview-box">พรีวิวรูปภาพที่อัปโหลด</div>', unsafe_allow_html=True)
-        
-    st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
-    st.markdown('<div style="padding: 1rem 1rem 0;">', unsafe_allow_html=True)
     st.markdown('<div class="tff-results-title">ผลการพยากรณ์</div>', unsafe_allow_html=True)
 
-    # วาดกล่องให้เสร็จก่อน แล้วค่อยพยายามโหลดโมเดลตรงนี้
     try:
         learn = load_model()
         labels = learn.dls.vocab
@@ -160,7 +184,6 @@ with col_right:
 
             top5 = results[:TOP_K]
             
-            # --- แถวที่ 1 ---
             cards_html = '<div class="tff-grid">'
             for i, (label, prob) in enumerate(top5[:3]):
                 top_cls = "top" if i == 0 else ""
@@ -177,7 +200,6 @@ with col_right:
                 </div>"""
             cards_html += '</div>'
 
-            # --- แถวที่ 2 ---
             cards_html += '<div class="tff-grid">'
             for i, (label, prob) in enumerate(top5[3:]):
                 pct_str = f"{prob*100:.1f}%"
@@ -191,7 +213,6 @@ with col_right:
                     <div class="tff-name">{label}</div>
                     <div class="tff-bar-bg"><div class="tff-bar {bar_class(prob)}" style="width:{bar_w}%"></div></div>
                 </div>"""
-            
             cards_html += '<div class="tff-card" style="background:transparent;border:none;"></div>'
             cards_html += '</div>'
 
@@ -201,6 +222,4 @@ with col_right:
 
     except Exception as e:
         st.error(f"โมเดลโหลดไม่สำเร็จ: {e}")
-        st.info("โปรดตรวจสอบว่าได้นำฟังก์ชันจาก Colab (เช่น get_y หรือ get_label) มาวางในบรรทัดที่กำหนดไว้ในโค้ดแล้วหรือยัง")
-
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.info("หากยังมี Error เกี่ยวกับฟังก์ชัน ให้แน่ใจว่าได้นำฟังก์ชันจาก Colab มาวางในโค้ดแล้ว (บรรทัดที่ 37)")

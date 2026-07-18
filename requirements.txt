@@ -3,3 +3,4 @@ Pillow
 fastai
 gdown
 timm
+omegaconf
