@@ -181,7 +181,11 @@ with col_right:
 
     if uploaded_file:
         with st.spinner("กำลังวิเคราะห์..."):
-            _, _, probs = learn.predict(image)
+            # 🎯 แปลงภาพเป็น Numpy Array แบบ RGB ก่อนส่งให้ FastAI
+            import numpy as np
+            img_for_fastai = np.array(image.convert('RGB'))
+            _, _, probs = learn.predict(img_for_fastai)
+            
             results = sorted(((labels[i], float(probs[i])) for i in range(len(labels))), key=lambda p: p[1], reverse=True)
 
         def pct_class(p):
